@@ -182,8 +182,9 @@
     <div class="disconnect-row">
       <form method="POST" action="/disconnect">
         <input type="hidden" name="account_id" value="{{ account['id'] }}">
+        {% set confirm_msg = "Disconnect @" + account['username'] + "?" %}
         <button type="submit" class="btn-disconnect"
-          onclick="return confirm('Disconnect @{{ account[\'username\'] }}?')">
+          onclick="return confirm('{{ confirm_msg }}')">
           Disconnect account
         </button>
       </form>

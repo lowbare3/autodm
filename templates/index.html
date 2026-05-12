@@ -134,8 +134,16 @@
       padding-top: 16px;
       border-top: 1px solid #f0f0f0;
       display: flex;
-      justify-content: flex-end;
+      justify-content: space-between;
+      align-items: center;
     }
+    .btn-posts {
+      font-size: 13px;
+      color: #0095f6;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .btn-posts:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -180,12 +188,19 @@
     </form>
 
     <div class="disconnect-row">
+      <a href="/posts/{{ account['id'] }}" class="btn-posts">
+        {% if account['post_count'] > 0 %}
+          {{ account['post_count'] }} post{{ 's' if account['post_count'] != 1 }} selected
+        {% else %}
+          Select specific posts
+        {% endif %}
+      </a>
       <form method="POST" action="/disconnect">
         <input type="hidden" name="account_id" value="{{ account['id'] }}">
         {% set confirm_msg = "Disconnect @" + account['username'] + "?" %}
         <button type="submit" class="btn-disconnect"
           onclick="return confirm('{{ confirm_msg }}')">
-          Disconnect account
+          Disconnect
         </button>
       </form>
     </div>

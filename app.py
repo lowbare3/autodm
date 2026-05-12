@@ -1,6 +1,7 @@
 import os
 import hmac
 import hashlib
+import json
 import sqlite3
 import requests
 from flask import Flask, request, jsonify, redirect, render_template
@@ -34,10 +35,16 @@ def init_db():
                 access_token TEXT NOT NULL,
                 dm_message TEXT DEFAULT 'Hey! Here''s the link: https://yourlink.com',
                 comment_reply TEXT DEFAULT 'Sent you a link! Check your DMs 📩',
+                selected_posts TEXT DEFAULT NULL,
                 active INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Migrate existing tables
+        try:
+            conn.execute("ALTER TABLE accounts ADD COLUMN selected_posts TEXT DEFAULT NULL")
+        except Exception:
+            pass
         conn.commit()
 
 
@@ -51,7 +58,13 @@ def index():
             "SELECT * FROM accounts WHERE active = 1 ORDER BY created_at DESC"
         ).fetchall()
     error = request.args.get("error")
-    return render_template("index.html", accounts=accounts, error=error)
+    # Parse selected_posts counts for display
+    accounts_data = []
+    for a in accounts:
+        d = dict(a)
+        d["post_count"] = len(json.loads(a["selected_posts"])) if a["selected_posts"] else 0
+        accounts_data.append(d)
+    return render_template("index.html", accounts=accounts_data, error=error)
 
 
 @app.route("/auth/login")
@@ -71,8 +84,7 @@ def auth_callback():
     if not code:
         return redirect("/?error=auth_failed")
 
-    # Exchange code for user access token
-    resp = requests.get("https://graph.facebook.com/v19.0/oauth/access_token", params={
+    resp = requests.get(f"{GRAPH_BASE}/oauth/access_token", params={
         "client_id": APP_ID,
         "client_secret": APP_SECRET,
         "redirect_uri": REDIRECT_URI,
@@ -84,34 +96,26 @@ def auth_callback():
 
     user_token = resp.json()["access_token"]
 
-    # Get linked Instagram Business Account
-    pages = requests.get("https://graph.facebook.com/v19.0/me/accounts", params={
-        "access_token": user_token
-    })
+    pages = requests.get(f"{GRAPH_BASE}/me/accounts", params={"access_token": user_token})
     if not pages.ok or not pages.json().get("data"):
         print(f"[auth] no pages found: {pages.text}")
         return redirect("/?error=no_page")
 
-    # Use the first page's token to get the Instagram account
     page = pages.json()["data"][0]
     page_token = page["access_token"]
     page_id = page["id"]
 
-    ig_resp = requests.get(f"https://graph.facebook.com/v19.0/{page_id}", params={
+    ig_resp = requests.get(f"{GRAPH_BASE}/{page_id}", params={
         "fields": "instagram_business_account",
         "access_token": page_token
     })
-    ig_data = ig_resp.json().get("instagram_business_account", {})
-    ig_user_id = ig_data.get("id")
+    ig_user_id = ig_resp.json().get("instagram_business_account", {}).get("id")
 
     if not ig_user_id:
         print(f"[auth] no instagram account linked: {ig_resp.text}")
         return redirect("/?error=no_instagram")
 
-    long_token = page_token
-
-    # Get Instagram username
-    me = requests.get(f"https://graph.facebook.com/v19.0/{ig_user_id}", params={
+    me = requests.get(f"{GRAPH_BASE}/{ig_user_id}", params={
         "fields": "username",
         "access_token": page_token
     })
@@ -125,7 +129,7 @@ def auth_callback():
                 access_token = excluded.access_token,
                 username = excluded.username,
                 active = 1
-        """, (ig_user_id, username, long_token))
+        """, (ig_user_id, username, page_token))
         conn.commit()
 
     return redirect("/")
@@ -143,6 +147,39 @@ def update_settings():
                 (dm_message, comment_reply, account_id)
             )
             conn.commit()
+    return redirect("/")
+
+
+@app.route("/posts/<int:account_id>")
+def select_posts(account_id):
+    with get_db() as conn:
+        account = conn.execute(
+            "SELECT * FROM accounts WHERE id = ? AND active = 1", (account_id,)
+        ).fetchone()
+    if not account:
+        return redirect("/")
+
+    resp = requests.get(f"{GRAPH_BASE}/{account['ig_user_id']}/media", params={
+        "fields": "id,caption,media_type,media_url,thumbnail_url,timestamp",
+        "limit": 24,
+        "access_token": account["access_token"]
+    })
+    posts = resp.json().get("data", []) if resp.ok else []
+    selected = json.loads(account["selected_posts"]) if account["selected_posts"] else []
+
+    return render_template("posts.html", account=dict(account), posts=posts, selected=selected)
+
+
+@app.route("/posts/<int:account_id>", methods=["POST"])
+def save_posts(account_id):
+    selected = request.form.getlist("post_ids")
+    selected_json = json.dumps(selected) if selected else None
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE accounts SET selected_posts = ? WHERE id = ?",
+            (selected_json, account_id)
+        )
+        conn.commit()
     return redirect("/")
 
 
@@ -199,11 +236,19 @@ def handle_comment(comment_data, account):
     commenter_id = comment_data.get("from", {}).get("id")
     commenter_username = comment_data.get("from", {}).get("username", "")
     comment_id = comment_data.get("id")
+    media_id = comment_data.get("media", {}).get("id")
 
     if not commenter_id or not comment_id:
         return
     if commenter_username == account["username"]:
         return
+
+    # Post filter — if specific posts selected, skip others
+    if account["selected_posts"]:
+        allowed = json.loads(account["selected_posts"])
+        if allowed and media_id not in allowed:
+            print(f"[filter] post {media_id} not in selected list, skipping")
+            return
 
     reply_to_comment(comment_id, account["comment_reply"], account["access_token"])
     send_dm(account["ig_user_id"], commenter_id, account["dm_message"], account["access_token"])

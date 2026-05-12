@@ -14,8 +14,8 @@ VERIFY_TOKEN = os.environ["VERIFY_TOKEN"]
 REDIRECT_URI = os.environ["REDIRECT_URI"]
 DB_PATH = "accounts.db"
 
-GRAPH_BASE = "https://graph.instagram.com"
-SCOPES = "instagram_business_basic,instagram_manage_messages,instagram_manage_comments,instagram_business_manage_messages"
+GRAPH_BASE = "https://graph.facebook.com/v19.0"
+SCOPES = "instagram_basic,instagram_manage_messages,instagram_manage_comments,pages_read_engagement,pages_manage_engagement"
 
 
 def get_db():
@@ -57,7 +57,7 @@ def index():
 @app.route("/auth/login")
 def auth_login():
     return redirect(
-        f"https://api.instagram.com/oauth/authorize"
+        f"https://www.facebook.com/dialog/oauth"
         f"?client_id={APP_ID}"
         f"&redirect_uri={REDIRECT_URI}"
         f"&scope={SCOPES}"
@@ -71,37 +71,49 @@ def auth_callback():
     if not code:
         return redirect("/?error=auth_failed")
 
-    # Exchange code for short-lived token
-    resp = requests.post("https://api.instagram.com/oauth/access_token", data={
+    # Exchange code for user access token
+    resp = requests.get("https://graph.facebook.com/v19.0/oauth/access_token", params={
         "client_id": APP_ID,
         "client_secret": APP_SECRET,
-        "grant_type": "authorization_code",
         "redirect_uri": REDIRECT_URI,
         "code": code
     })
     if not resp.ok:
-        print(f"[auth] short token failed: {resp.text}")
+        print(f"[auth] token exchange failed: {resp.text}")
         return redirect("/?error=token_failed")
 
-    short_token = resp.json()["access_token"]
-    ig_user_id = str(resp.json()["user_id"])
+    user_token = resp.json()["access_token"]
 
-    # Exchange for long-lived token (60 days)
-    ll = requests.get(f"{GRAPH_BASE}/access_token", params={
-        "grant_type": "ig_exchange_token",
-        "client_secret": APP_SECRET,
-        "access_token": short_token
+    # Get linked Instagram Business Account
+    pages = requests.get("https://graph.facebook.com/v19.0/me/accounts", params={
+        "access_token": user_token
     })
-    if not ll.ok:
-        print(f"[auth] long-lived token failed: {ll.text}")
-        return redirect("/?error=token_failed")
+    if not pages.ok or not pages.json().get("data"):
+        print(f"[auth] no pages found: {pages.text}")
+        return redirect("/?error=no_page")
 
-    long_token = ll.json()["access_token"]
+    # Use the first page's token to get the Instagram account
+    page = pages.json()["data"][0]
+    page_token = page["access_token"]
+    page_id = page["id"]
 
-    # Get username
-    me = requests.get(f"{GRAPH_BASE}/me", params={
-        "fields": "id,username",
-        "access_token": long_token
+    ig_resp = requests.get(f"https://graph.facebook.com/v19.0/{page_id}", params={
+        "fields": "instagram_business_account",
+        "access_token": page_token
+    })
+    ig_data = ig_resp.json().get("instagram_business_account", {})
+    ig_user_id = ig_data.get("id")
+
+    if not ig_user_id:
+        print(f"[auth] no instagram account linked: {ig_resp.text}")
+        return redirect("/?error=no_instagram")
+
+    long_token = page_token
+
+    # Get Instagram username
+    me = requests.get(f"https://graph.facebook.com/v19.0/{ig_user_id}", params={
+        "fields": "username",
+        "access_token": page_token
     })
     username = me.json().get("username", "unknown") if me.ok else "unknown"
 

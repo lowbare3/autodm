@@ -19,6 +19,11 @@ def verify_signature(payload: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
+@app.route("/")
+def health():
+    return "OK", 200
+
+
 @app.route("/webhook", methods=["GET"])
 def verify_webhook():
     if request.args.get("hub.verify_token") == VERIFY_TOKEN:

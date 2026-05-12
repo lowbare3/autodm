@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoDM</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #222; min-height: 100vh; }
+
+    header {
+      background: white;
+      border-bottom: 1px solid #e5e5e5;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+
+    .btn-connect {
+      background: #0095f6;
+      color: white;
+      padding: 9px 18px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      transition: background 0.15s;
+    }
+    .btn-connect:hover { background: #007fd4; }
+
+    main { max-width: 680px; margin: 36px auto; padding: 0 16px 60px; }
+
+    .alert {
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+    .alert.error { background: #fff0f0; color: #c0392b; border: 1px solid #f5c6c6; }
+
+    .empty-state {
+      text-align: center;
+      padding: 72px 0;
+      color: #888;
+    }
+    .empty-state h2 { font-size: 18px; color: #444; margin-bottom: 8px; }
+    .empty-state p { font-size: 14px; margin-bottom: 24px; }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .username { font-weight: 700; font-size: 15px; }
+    .username .at { color: #888; font-weight: 400; }
+    .badge {
+      font-size: 11px;
+      background: #e8f5e9;
+      color: #2e7d32;
+      padding: 3px 9px;
+      border-radius: 20px;
+      font-weight: 600;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    textarea, input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      color: #222;
+      transition: border-color 0.15s;
+      margin-bottom: 16px;
+    }
+    textarea { height: 90px; resize: vertical; }
+    textarea:focus, input[type="text"]:focus { outline: none; border-color: #0095f6; box-shadow: 0 0 0 3px rgba(0,149,246,0.1); }
+
+    .form-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+    .btn {
+      padding: 9px 18px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: background 0.15s;
+    }
+    .btn-save { background: #0095f6; color: white; }
+    .btn-save:hover { background: #007fd4; }
+    .btn-disconnect {
+      background: none;
+      color: #999;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      padding: 0;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .btn-disconnect:hover { color: #e0392b; }
+
+    .disconnect-row {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #f0f0f0;
+      display: flex;
+      justify-content: flex-end;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>AutoDM</h1>
+  <a href="/auth/login" class="btn-connect">+ Connect Instagram</a>
+</header>
+
+<main>
+  {% if error %}
+  <div class="alert error">Connection failed — please try again.</div>
+  {% endif %}
+
+  {% if not accounts %}
+  <div class="empty-state">
+    <h2>No accounts connected</h2>
+    <p>Connect an Instagram account to start automating DMs.</p>
+    <a href="/auth/login" class="btn-connect">Connect Instagram</a>
+  </div>
+
+  {% else %}
+  {% for account in accounts %}
+  <div class="card">
+    <div class="card-header">
+      <div class="username"><span class="at">@</span>{{ account['username'] }}</div>
+      <span class="badge">Active</span>
+    </div>
+
+    <form method="POST" action="/settings">
+      <input type="hidden" name="account_id" value="{{ account['id'] }}">
+
+      <label>DM Message</label>
+      <textarea name="dm_message">{{ account['dm_message'] }}</textarea>
+
+      <label>Comment Reply</label>
+      <input type="text" name="comment_reply" value="{{ account['comment_reply'] }}">
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-save">Save</button>
+      </div>
+    </form>
+
+    <div class="disconnect-row">
+      <form method="POST" action="/disconnect">
+        <input type="hidden" name="account_id" value="{{ account['id'] }}">
+        <button type="submit" class="btn-disconnect"
+          onclick="return confirm('Disconnect @{{ account[\'username\'] }}?')">
+          Disconnect account
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+</main>
+
+</body>
+</html>

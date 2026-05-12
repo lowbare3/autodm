@@ -15,7 +15,7 @@ REDIRECT_URI = os.environ["REDIRECT_URI"]
 DB_PATH = "accounts.db"
 
 GRAPH_BASE = "https://graph.facebook.com/v19.0"
-SCOPES = "instagram_basic,instagram_manage_messages,instagram_manage_comments,pages_read_engagement,pages_manage_engagement"
+SCOPES = "instagram_basic,instagram_manage_messages,instagram_manage_comments,pages_read_engagement,pages_show_list"
 
 
 def get_db():
